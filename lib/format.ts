@@ -98,7 +98,7 @@ export function formatPostEdit(p: PostEdit): { text: string; keyboard: InlineKey
 
   if (p.status === 'awaiting_correction') {
     const hint = p.corrections_ru.length === 0
-      ? '✍️ <i>Напиши правку русским текстом — что изменить (например: «сделай короче», «убери последнюю фразу», «добавь вопрос про коробки»).</i>'
+      ? '✍️ <i>Напиши правку русским текстом — что изменить (например: «сделай короче», «убери последнюю фразу», «добавь уточняющий вопрос»).</i>'
       : '✍️ <i>Напиши следующую правку, или нажми «Готово» если устраивает.</i>';
 
     const currentBlock = p.current_text_en !== p.original_text_en

@@ -12,7 +12,8 @@
 //   - brand      — обычный warm-content для присутствия (как большинство сейчас).
 //                  Тёплая зарисовка, бытовая деталь, без жёсткой цели.
 //
-// Соотношение (по запросу Нади 26.05.2026): 70% subscribe / 30% discovery + редко brand.
+// Соотношение по умолчанию: ~70% subscribe / 30% discovery + редко brand.
+// Подбери под свою стадию: растёшь — больше subscribe; изучаешь аудиторию — больше discovery.
 
 export type ContentGoal = 'subscribe' | 'discovery' | 'brand';
 

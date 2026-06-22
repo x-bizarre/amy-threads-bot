@@ -42,10 +42,10 @@ export interface OutreachItem {
   search_query: string;        // каким запросом нашли
   tone: 'normal' | 'heavy' | 'spam';
   comment_en: string;          // сгенерированный ответ (EN)
-  comment_ru: string;          // перевод на русский (для Нади)
+  comment_ru: string;          // перевод на русский (для пользователя)
   rationale: string;           // почему такой тон
   status: OutreachItemStatus;
-  corrections_ru: string[];    // история правок от Нади
+  corrections_ru: string[];    // история правок от пользователя
   telegram_message_id?: number;
   published_thread_reply_id?: string | null;
   created_at: string;
