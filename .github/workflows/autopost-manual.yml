@@ -1,0 +1,25 @@
+name: Autopost (manual trigger)
+
+# Manual-only — дёргает Vercel /api/cron/autopost.
+# Используется когда надо опубликовать пост из очереди прямо сейчас,
+# не дожидаясь cron'а (5 раз в день).
+on:
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping autopost
+        env:
+          VERCEL_URL: ${{ secrets.VERCEL_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          set -eu
+          code=$(curl -sS --max-time 240 -o /tmp/body.txt -w "%{http_code}" \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${VERCEL_URL}/api/cron/autopost")
+          echo "HTTP ${code}"
+          cat /tmp/body.txt
+          test "${code}" = "200"
