@@ -1,8 +1,12 @@
 // Обёртка над Threads Graph API — публикация и чтение реплаев
+import { getActiveToken } from './token-refresh';
+
 const API_BASE = 'https://graph.threads.net/v1.0';
 
-function token(): string {
-  const t = process.env.THREADS_ACCESS_TOKEN;
+// Берём актуальный токен: сначала свежий из Redis (после авто-refresh),
+// потом из env. См. lib/token-refresh.ts.
+async function token(): Promise<string> {
+  const t = await getActiveToken();
   if (!t) throw new Error('THREADS_ACCESS_TOKEN не задан');
   return t;
 }
@@ -20,14 +24,15 @@ async function tApi(method: string, path: string, params: Record<string, string>
   // (например em-dash 8212) с "ByteString character > 255".
   // Для GET — параметры в URL (там обычно короткие fields/limit).
   let res: Response;
+  const accessToken = await token();
   if (method === 'GET') {
     for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
-    url.searchParams.set('access_token', token());
+    url.searchParams.set('access_token', accessToken);
     res = await fetch(url.toString(), { method });
   } else {
     const form = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) form.set(k, v);
-    form.set('access_token', token());
+    form.set('access_token', accessToken);
     res = await fetch(url.toString(), {
       method,
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -300,7 +305,7 @@ export async function findPostByPermalink(permalink: string, limit = 50): Promis
 // старше или не наш — Threads вернёт ошибку, которую мы прокинем выше.
 export async function deletePost(postId: string): Promise<void> {
   const url = new URL(`${API_BASE}/${postId}`);
-  url.searchParams.set('access_token', token());
+  url.searchParams.set('access_token', await token());
   const res = await fetch(url.toString(), { method: 'DELETE' });
   if (!res.ok) {
     const text = await res.text();

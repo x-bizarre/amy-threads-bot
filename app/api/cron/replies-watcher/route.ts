@@ -8,6 +8,7 @@ import { getPostReplies, ReplyItem } from '@/lib/threads';
 import { sendTelegram } from '@/lib/telegram';
 import { isReplySeen, markReplySeen } from '@/lib/state';
 import { generateDraft } from '@/lib/openrouter';
+import { logDecision } from '@/lib/decision-log';
 import { Dialog, genDialogId, saveDialog } from '@/lib/dialog';
 import { formatDialog } from '@/lib/format';
 import { appendToArchive, ArchiveEntry } from '@/lib/comments-archive';
@@ -145,6 +146,14 @@ export async function GET(req: Request) {
       };
 
       await saveDialog(dialog);
+
+      // Журнал решений LLM — чтобы потом понять, почему ответили/пропустили.
+      await logDecision({
+        kind: 'reply',
+        action: draft.recommendation,
+        reason: draft.skip_reason,
+        context: combinedText.slice(0, 160),
+      });
 
       const { text, keyboard } = formatDialog(dialog);
       try {

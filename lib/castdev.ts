@@ -22,6 +22,7 @@
 // и хранятся в repo: queue/castdev_findings.md
 
 import { getFile } from './github';
+import { loadTemplate } from './load-template';
 
 export type CastdevModuleId = 'M1_barriers' | 'M2_jtbd';
 
@@ -186,4 +187,41 @@ ${module.example_questions.map((q) => `- ${q}`).join('\n')}
 ${module.avoid.map((a) => `- ${a}`).join('\n')}
 ${knownBlock}
 `.trim();
+}
+
+// ====================================================================
+// Загрузка текста кастдев-модулей из prompts/castdev.md.
+// Используется в buildCastdevContextFromTemplate — чтобы содержательный
+// текст (вопросы, фокус-зоны) жил в markdown, а не в .ts.
+// ====================================================================
+
+export async function loadCastdevModulesText(): Promise<string> {
+  return await loadTemplate('castdev.md');
+}
+
+// Формирование блока findings для промпта (общая логика).
+function buildKnownBlock(findings: Findings): string {
+  const allKnown: string[] = [];
+  for (const modId of Object.keys(findings.by_module) as CastdevModuleId[]) {
+    const items = findings.by_module[modId] ?? [];
+    if (items.length > 0) {
+      allKnown.push(`### ${modId}`, ...items.map((f) => `- ${f}`));
+    }
+  }
+  if (allKnown.length > 0) {
+    return `\n## Что мы УЖЕ знаем (НЕ спрашивай это снова)
+Это findings, подтверждённые >=5 разными юзерами — реальность аудитории.
+${allKnown.join('\n')}
+
+Копай ГЛУБЖЕ этих findings, не возвращайся к ним.`;
+  }
+  return '\n## Что мы УЖЕ знаем\n(пока ничего — первые посты, можно копать любую фокус-зону)';
+}
+
+// Async-вариант buildCastdevContext: берёт текст модулей из prompts/castdev.md,
+// добавляет блок «что мы уже знаем» из findings. Вызывается из post-generator.
+export async function buildCastdevContextFromTemplate(findings: Findings): Promise<string> {
+  const modulesText = await loadCastdevModulesText();
+  const knownBlock = buildKnownBlock(findings);
+  return `${modulesText}\n${knownBlock}`;
 }

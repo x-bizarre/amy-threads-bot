@@ -5,7 +5,10 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run lint"
   },
   "dependencies": {
     "gray-matter": "^4.0.3",
@@ -16,6 +19,8 @@
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/react": "^18.3.3",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.15",
     "typescript": "^5.4.5"
   }
 }

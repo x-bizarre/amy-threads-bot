@@ -15,6 +15,10 @@ const REST_TOKEN = () => {
 // Универсальный pipeline-вызов (один POST с массивом команд, если надо батчить).
 // Cache-Control: no-store — Next.js fetch иначе кеширует GET-эквивалентные ответы,
 // и каждый watcher-запуск получает stale данные с пустыми Set'ами.
+export async function cmdRaw(args: (string | number)[]): Promise<any> {
+  return cmd(args);
+}
+
 async function cmd(args: (string | number)[]): Promise<any> {
   const res = await fetch(`${REST_URL()}`, {
     method: 'POST',
@@ -61,6 +65,24 @@ export async function del(key: string): Promise<void> {
 export async function setnx<T = any>(key: string, value: T): Promise<boolean> {
   const r = (await cmd(['SET', key, JSON.stringify(value), 'NX'])) as string | null;
   return r === 'OK';
+}
+
+// Атомарный lock с авто-протуханием: SET key val NX EX <ttl>.
+// Возвращает true, если лок взят (ключа не было). С TTL — чтобы упавший
+// процесс не оставил вечный лок. Используется для защиты от двойной публикации.
+export async function acquireLock(key: string, ttlSeconds: number): Promise<boolean> {
+  const r = (await cmd(['SET', key, '1', 'NX', 'EX', ttlSeconds])) as string | null;
+  return r === 'OK';
+}
+
+// Снять лок вручную (если работа завершилась раньше TTL).
+export async function releaseLock(key: string): Promise<void> {
+  await del(key);
+}
+
+// Пометить значение с TTL (для «этот пост уже опубликован» — анти-дубль).
+export async function setWithTtl<T = any>(key: string, value: T, ttlSeconds: number): Promise<void> {
+  await cmd(['SET', key, JSON.stringify(value), 'EX', ttlSeconds]);
 }
 
 // SADD / SMEMBERS / SISMEMBER — для хранения множества viewed reply ids.

@@ -1,5 +1,5 @@
 // Клиент OpenRouter. Используется для генерации черновиков ответов и перевода на английский.
-import { BRAND_VOICE_SYSTEM_PROMPT, DraftResult } from './brand';
+import { getBrandVoicePrompt, DraftResult } from './brand';
 import { BRAND } from './brand-config';
 
 const API_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -70,7 +70,7 @@ ${ctx.replyText}
 
   const raw = await chat(
     [
-      { role: 'system', content: BRAND_VOICE_SYSTEM_PROMPT },
+      { role: 'system', content: await getBrandVoicePrompt() },
       { role: 'user', content: userPrompt },
     ],
     { jsonMode: true, maxTokens: 600 }
@@ -125,7 +125,7 @@ ${userCorrection}
 
   const raw = await chat(
     [
-      { role: 'system', content: BRAND_VOICE_SYSTEM_PROMPT },
+      { role: 'system', content: await getBrandVoicePrompt() },
       { role: 'user', content: userPrompt },
     ],
     { maxTokens: 500 }
@@ -168,7 +168,7 @@ ${corrections}
 
   const raw = await chat(
     [
-      { role: 'system', content: BRAND_VOICE_SYSTEM_PROMPT },
+      { role: 'system', content: await getBrandVoicePrompt() },
       { role: 'user', content: userPrompt },
     ],
     { maxTokens: 600 }
@@ -205,7 +205,7 @@ ${corr}
 
   const raw = await chat(
     [
-      { role: 'system', content: BRAND_VOICE_SYSTEM_PROMPT },
+      { role: 'system', content: await getBrandVoicePrompt() },
       { role: 'user', content: userPrompt },
     ],
     { maxTokens: 600 }
@@ -240,7 +240,7 @@ ${textRu}
 
   const raw = await chat(
     [
-      { role: 'system', content: BRAND_VOICE_SYSTEM_PROMPT },
+      { role: 'system', content: await getBrandVoicePrompt() },
       { role: 'user', content: userPrompt },
     ],
     { maxTokens: 400 }

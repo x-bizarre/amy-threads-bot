@@ -15,7 +15,7 @@
 // разных пользователей должны сказать похожее, иначе это weak signal.
 import { listQueue } from './queue';
 import { getPostReplies } from './threads';
-import { BRAND_VOICE_SYSTEM_PROMPT } from './brand';
+import { getBrandVoicePrompt } from './brand';
 import { getFile, putFile } from './github';
 import { readArchive } from './comments-archive';
 import { handleAt } from './brand-config';
@@ -195,7 +195,7 @@ ${archiveSlice}
     body: JSON.stringify({
       model: 'anthropic/claude-sonnet-4.6',
       messages: [
-        { role: 'system', content: BRAND_VOICE_SYSTEM_PROMPT },
+        { role: 'system', content: await getBrandVoicePrompt() },
         { role: 'user', content: userPrompt },
       ],
       max_tokens: 4000,

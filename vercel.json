@@ -5,7 +5,8 @@
     { "path": "/api/cron/autopost", "schedule": "15 16 * * *" },
     { "path": "/api/cron/autopost", "schedule": "0 21 * * *" },
     { "path": "/api/cron/queue-refill", "schedule": "0 9 * * *" },
-    { "path": "/api/cron/weekly-analysis", "schedule": "0 4 * * 1" }
+    { "path": "/api/cron/weekly-analysis", "schedule": "0 4 * * 1" },
+    { "path": "/api/cron/token-refresh", "schedule": "0 6 * * 1" }
   ]
 }
 

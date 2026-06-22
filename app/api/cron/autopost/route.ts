@@ -4,6 +4,12 @@ import { NextResponse } from 'next/server';
 import { extractMediaForPost, markPosted, nextDraft } from '@/lib/queue';
 import { publish } from '@/lib/threads';
 import { sendTelegram } from '@/lib/telegram';
+import { acquireLock, releaseLock, get, setWithTtl } from '@/lib/redis';
+
+// Анти-дубль: глобальный лок на публикацию (только один cron публикует за раз)
+// и пометка «этот файл уже опубликован» на случай, если markPosted в репо упал.
+const AUTOPOST_LOCK = 'lock:autopost';
+const postedKey = (path: string) => `posted:${path}`;
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 минут — хватит на тред
@@ -28,22 +34,44 @@ export async function GET(req: Request) {
     return NextResponse.json({ status: 'paused' });
   }
 
-  const item = await nextDraft();
-  if (!item) {
-    // Уведомление «очередь пуста» отключено: теперь посты идут не из очереди,
-    // а пишутся вручную → согласование → только потом кладутся в очередь.
-    // Поэтому пустая очередь — нормальное состояние, спамить не нужно.
-    return NextResponse.json({ status: 'queue_empty' });
+  // Берём глобальный лок на 4 минуты (меньше maxDuration). Если другой вызов
+  // cron уже публикует — выходим, чтобы не опубликовать тот же пост дважды.
+  const gotLock = await acquireLock(AUTOPOST_LOCK, 240).catch(() => true);
+  if (!gotLock) {
+    return NextResponse.json({ status: 'busy', reason: 'autopost уже выполняется' });
   }
 
-  if (item.posts.length === 0) {
-    return NextResponse.json({ status: 'error', reason: `${item.path}: нет постов` }, { status: 500 });
-  }
-
+  // item объявляем здесь, чтобы он был виден и в catch (для текста ошибки)
+  let item: Awaited<ReturnType<typeof nextDraft>> = null;
   try {
+    item = await nextDraft();
+    if (!item) {
+      // Уведомление «очередь пуста» отключено: теперь посты идут не из очереди,
+      // а пишутся вручную → согласование → только потом кладутся в очередь.
+      // Поэтому пустая очередь — нормальное состояние, спамить не нужно.
+      return NextResponse.json({ status: 'queue_empty' });
+    }
+
+    if (item.posts.length === 0) {
+      return NextResponse.json({ status: 'error', reason: `${item.path}: нет постов` }, { status: 500 });
+    }
+
+    // Двойная защита: если файл уже помечен опубликованным в Redis (а в репо
+    // статус не успел записаться) — не публикуем повторно.
+    const alreadyPosted = await get(postedKey(item.path)).catch(() => null);
+    if (alreadyPosted) {
+      return NextResponse.json({ status: 'skipped_duplicate', file: item.path });
+    }
+
     // Публикуем первый пост (с медиа из frontmatter если есть)
     const firstMedia = extractMediaForPost(item, 0);
     const first = await publish(item.posts[0], firstMedia);
+
+    // СРАЗУ помечаем файл опубликованным в Redis — до записи статуса в репо.
+    // Это закрывает окно «опубликовали, но markPosted упал»: следующий cron
+    // увидит пометку и не опубликует тот же пост повторно. TTL 7 дней.
+    await setWithTtl(postedKey(item.path), { post_id: first.id }, 7 * 24 * 3600).catch(() => {});
+
     let tailId = first.id;
     const publishedIds: string[] = [first.id];
 
@@ -55,10 +83,6 @@ export async function GET(req: Request) {
       tailId = reply.id;
       publishedIds.push(reply.id);
     }
-
-    // Reply-bait отключён: раньше он публиковался отдельным авторским
-    // комментарием, но в эту секцию очереди попадали внутренние заметки.
-    // Бот больше НЕ публикует никаких авторских комментариев к посту.
 
     // Статус в файле и Telegram
     const publishedAt = new Date().toISOString().replace('T', ' ').slice(0, 16);
@@ -87,11 +111,15 @@ export async function GET(req: Request) {
     });
   } catch (err: any) {
     const msg = err?.message ?? String(err);
+    const fname = item ? (item.path.split('/').pop() ?? item.path) : '(файл не выбран)';
     try {
       await sendTelegram(
-        `<b>Threads: ошибка публикации</b>\nФайл: <code>${item.path.split('/').pop()}</code>\n<pre>${msg.slice(0, 500)}</pre>`
+        `<b>Threads: ошибка публикации</b>\nФайл: <code>${fname}</code>\n<pre>${msg.slice(0, 500)}</pre>`
       );
     } catch {}
     return NextResponse.json({ status: 'error', error: msg }, { status: 500 });
+  } finally {
+    // Снимаем лок, чтобы следующий слот не ждал TTL
+    await releaseLock(AUTOPOST_LOCK).catch(() => {});
   }
 }

@@ -57,3 +57,6 @@ out
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Next.js auto-generated
+next-env.d.ts

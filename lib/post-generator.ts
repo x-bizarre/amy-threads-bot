@@ -15,12 +15,11 @@ import {
   DEFAULT_MIX,
 } from './content-strategy';
 import {
-  CastdevModule,
-  buildCastdevContext,
+  buildCastdevContextFromTemplate,
   loadFindings,
   pickModuleForDiscovery,
 } from './castdev';
-import { BRAND_VOICE_SYSTEM_PROMPT } from './brand';
+import { getBrandVoicePrompt } from './brand';
 import { handleAt } from './brand-config';
 
 // Тонкий wrapper над тем же OpenRouter что в lib/openrouter.ts, но без CommentContext.
@@ -103,14 +102,14 @@ export async function generatePost(forceGoal?: ContentGoal): Promise<GeneratedPo
   const goal = forceGoal ?? pickNextGoal(recentGoals);
   const spec = GOAL_SPECS[goal];
 
-  // Для discovery — выбираем castdev-модуль
+  // Для discovery — выбираем castdev-модуль и загружаем контекст из шаблона
   let castdevBlock = '';
   let castdevModuleId: string | undefined;
   if (goal === 'discovery') {
     const findings = await loadFindings();
-    const module = pickModuleForDiscovery(findings);
-    castdevModuleId = module.id;
-    castdevBlock = `\n\n${buildCastdevContext(module, findings)}`;
+    const castdevModule = pickModuleForDiscovery(findings);
+    castdevModuleId = castdevModule.id;
+    castdevBlock = `\n\n${await buildCastdevContextFromTemplate(findings)}`;
   }
 
   const recentBlock = buildRecentContext(recent);
@@ -147,7 +146,7 @@ ${recentBlock}
 
   const raw = await chat(
     [
-      { role: 'system', content: BRAND_VOICE_SYSTEM_PROMPT },
+      { role: 'system', content: await getBrandVoicePrompt() },
       { role: 'user', content: userPrompt },
     ],
     900
