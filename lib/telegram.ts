@@ -75,10 +75,12 @@ export async function answerCallbackQuery(callbackQueryId: string, text?: string
   });
 }
 
-export async function setWebhook(url: string, secretToken: string): Promise<void> {
-  await tg('setWebhook', {
+export async function setWebhook(url: string, secretToken?: string): Promise<void> {
+  const body: Record<string, any> = {
     url,
-    secret_token: secretToken,
     allowed_updates: ['message', 'callback_query'],
-  });
+  };
+  // Telegram не принимает пустой secret_token — поле шлём только если он задан.
+  if (secretToken) body.secret_token = secretToken;
+  await tg('setWebhook', body);
 }

@@ -6,7 +6,7 @@
 //   - Текстовые сообщения: правка драфта коммента ИЛИ правка поста
 import { NextResponse } from 'next/server';
 import { handleAt } from '@/lib/brand-config';
-import { answerCallbackQuery, editMessageText, sendTelegram } from '@/lib/telegram';
+import { answerCallbackQuery, editMessageText, sendTelegram, setWebhook } from '@/lib/telegram';
 import { formatDialog, formatDraft, formatPostEdit, formatPreview } from '@/lib/format';
 import {
   getDialog,
@@ -100,6 +100,50 @@ interface TgUpdate {
     message?: { message_id: number; chat: { id: number } };
     data?: string;
   };
+}
+
+// GET-ручка для ОДНОРАЗОВОЙ настройки webhook.
+// Открой в браузере: https://<твой-деплой>/api/bot/telegram-webhook?setup=1
+// Она сама скажет Telegram'у слать апдейты на этот адрес. Без этого шага кнопки
+// одобрения в боте работать НЕ будут.
+export async function GET(req: Request) {
+  const url = new URL(req.url);
+  if (url.searchParams.get('setup') !== '1') {
+    return NextResponse.json({
+      ok: true,
+      hint: 'Чтобы подключить бота к Telegram, открой этот же адрес с ?setup=1 на конце.',
+    });
+  }
+
+  if (!process.env.TELEGRAM_BOT_TOKEN) {
+    return NextResponse.json({ ok: false, error: 'TELEGRAM_BOT_TOKEN не задан' }, { status: 500 });
+  }
+
+  // Адрес, на который Telegram будет слать апдейты — это текущий деплой.
+  // Берём из заголовков запроса (works и на Vercel, и на другом хостинге).
+  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host');
+  const proto = req.headers.get('x-forwarded-proto') ?? 'https';
+  const base = process.env.PUBLIC_MEDIA_BASE_URL?.replace(/\/$/, '') ?? `${proto}://${host}`;
+  const webhookUrl = `${base}/api/bot/telegram-webhook`;
+
+  // Секрет для проверки подлинности апдейтов. Если задан TELEGRAM_WEBHOOK_SECRET —
+  // используем его; иначе подключаем без секрета (менее безопасно, но рабоче).
+  const secret = process.env.TELEGRAM_WEBHOOK_SECRET ?? '';
+
+  try {
+    await setWebhook(webhookUrl, secret);
+    return NextResponse.json({
+      ok: true,
+      message: 'Webhook подключён. Напиши боту /help — он должен ответить.',
+      webhook_url: webhookUrl,
+      secret_used: Boolean(secret),
+    });
+  } catch (err: any) {
+    return NextResponse.json(
+      { ok: false, error: err?.message ?? String(err) },
+      { status: 500 }
+    );
+  }
 }
 
 export async function POST(req: Request) {

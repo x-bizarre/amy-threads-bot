@@ -1,4 +1,5 @@
-// Cron-ручка автопостинга. Вызывается Vercel cron 5 раз в день.
+// Cron-ручка автопостинга. Вызывается Vercel cron несколько раз в день
+// (по расписанию из vercel.json).
 // Берёт следующий draft из queue/, публикует, обновляет статус, шлёт Telegram.
 import { NextResponse } from 'next/server';
 import { extractMediaForPost, markPosted, nextDraft } from '@/lib/queue';

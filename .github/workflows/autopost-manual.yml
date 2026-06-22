@@ -2,7 +2,7 @@ name: Autopost (manual trigger)
 
 # Manual-only — дёргает Vercel /api/cron/autopost.
 # Используется когда надо опубликовать пост из очереди прямо сейчас,
-# не дожидаясь cron'а (5 раз в день).
+# не дожидаясь планового слота cron'а.
 on:
   workflow_dispatch:
 
