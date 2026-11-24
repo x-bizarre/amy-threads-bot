@@ -2,10 +2,12 @@
 // (по расписанию из vercel.json).
 // Берёт следующий draft из queue/, публикует, обновляет статус, шлёт Telegram.
 import { NextResponse } from 'next/server';
+import { verifyCronAuth } from '@/lib/auth';
 import { extractMediaForPost, markPosted, nextDraft } from '@/lib/queue';
 import { publish } from '@/lib/threads';
 import { sendTelegram } from '@/lib/telegram';
 import { acquireLock, releaseLock, get, setWithTtl } from '@/lib/redis';
+import { escape } from '@/lib/format';
 
 // Анти-дубль: глобальный лок на публикацию (только один cron публикует за раз)
 // и пометка «этот файл уже опубликован» на случай, если markPosted в репо упал.
@@ -15,17 +17,8 @@ const postedKey = (path: string) => `posted:${path}`;
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300; // 5 минут — хватит на тред
 
-function verifyAuth(req: Request): boolean {
-  // Vercel cron шлёт заголовок Authorization: Bearer <CRON_SECRET>
-  // Env CRON_SECRET устанавливается автоматически при включении cron.
-  const auth = req.headers.get('authorization') ?? '';
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // dev / ручной запуск
-  return auth === `Bearer ${secret}`;
-}
-
 export async function GET(req: Request) {
-  if (!verifyAuth(req)) {
+  if (!verifyCronAuth(req)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
@@ -37,7 +30,8 @@ export async function GET(req: Request) {
 
   // Берём глобальный лок на 4 минуты (меньше maxDuration). Если другой вызов
   // cron уже публикует — выходим, чтобы не опубликовать тот же пост дважды.
-  const gotLock = await acquireLock(AUTOPOST_LOCK, 240).catch(() => true);
+  // Если Redis недоступен — тоже выходим (fail-closed), иначе возможен дубль.
+  const gotLock = await acquireLock(AUTOPOST_LOCK, 240).catch(() => false);
   if (!gotLock) {
     return NextResponse.json({ status: 'busy', reason: 'autopost уже выполняется' });
   }
@@ -115,7 +109,7 @@ export async function GET(req: Request) {
     const fname = item ? (item.path.split('/').pop() ?? item.path) : '(файл не выбран)';
     try {
       await sendTelegram(
-        `<b>Threads: ошибка публикации</b>\nФайл: <code>${fname}</code>\n<pre>${msg.slice(0, 500)}</pre>`
+        `<b>Threads: ошибка публикации</b>\nФайл: <code>${escape(fname)}</code>\n<pre>${escape(msg.slice(0, 500))}</pre>`
       );
     } catch {}
     return NextResponse.json({ status: 'error', error: msg }, { status: 500 });

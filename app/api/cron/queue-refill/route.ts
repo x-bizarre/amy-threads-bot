@@ -2,10 +2,11 @@
 // генерит N новых и шлёт в Telegram на одобрение.
 // Опубликованные посты НЕ публикуются автоматически — только после ✅ в TG.
 import { NextResponse } from 'next/server';
+import { verifyCronAuth } from '@/lib/auth';
 import { listQueue } from '@/lib/queue';
 import { generatePost } from '@/lib/post-generator';
 import { genDraftId, saveDraft, listPendingDrafts, PostDraft } from '@/lib/post-draft';
-import { formatDraft } from '@/lib/format';
+import { escape, formatDraft } from '@/lib/format';
 import { sendTelegram } from '@/lib/telegram';
 
 export const dynamic = 'force-dynamic';
@@ -14,15 +15,8 @@ export const maxDuration = 120;
 const QUEUE_MIN = 5; // если драфтов меньше — генерим
 const GENERATE_BATCH = 3; // сколько генерим за раз
 
-function verifyAuth(req: Request): boolean {
-  const auth = req.headers.get('authorization') ?? '';
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  return auth === `Bearer ${secret}`;
-}
-
 export async function GET(req: Request) {
-  if (!verifyAuth(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  if (!verifyCronAuth(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const items = await listQueue();
   const drafts = items.filter((i) => {
@@ -72,7 +66,7 @@ export async function GET(req: Request) {
   }
 
   if (errors.length > 0) {
-    await sendTelegram(`<b>⚠️ Ошибки при генерации:</b>\n<pre>${errors.join('\n')}</pre>`);
+    await sendTelegram(`<b>⚠️ Ошибки при генерации:</b>\n<pre>${escape(errors.join('\n'))}</pre>`);
   }
 
   return NextResponse.json({

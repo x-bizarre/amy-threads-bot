@@ -3,6 +3,7 @@
 // Фильтрует свои, группирует по автору, создаёт диалоги в Redis,
 // шлёт в Telegram с LLM-черновиком и инлайн-кнопками.
 import { NextResponse } from 'next/server';
+import { verifyCronAuth } from '@/lib/auth';
 import { listQueue, QueueItem } from '@/lib/queue';
 import { getPostReplies, ReplyItem } from '@/lib/threads';
 import { sendTelegram } from '@/lib/telegram';
@@ -10,7 +11,7 @@ import { isReplySeen, markReplySeen } from '@/lib/state';
 import { generateDraft } from '@/lib/openrouter';
 import { logDecision } from '@/lib/decision-log';
 import { Dialog, genDialogId, saveDialog } from '@/lib/dialog';
-import { formatDialog } from '@/lib/format';
+import { escape, formatDialog } from '@/lib/format';
 import { appendToArchive, ArchiveEntry } from '@/lib/comments-archive';
 
 export const dynamic = 'force-dynamic';
@@ -26,19 +27,12 @@ function isRecent(publishedAt?: string): boolean {
   return daysAgo <= MAX_AGE_DAYS;
 }
 
-function verifyAuth(req: Request): boolean {
-  const auth = req.headers.get('authorization') ?? '';
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  return auth === `Bearer ${secret}`;
-}
-
 function extractPostText(item: QueueItem): string {
   return item.posts[0] ?? '';
 }
 
 export async function GET(req: Request) {
-  if (!verifyAuth(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  if (!verifyCronAuth(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const myUsername = (process.env.THREADS_USERNAME ?? '').toLowerCase();
   if (!myUsername) {
@@ -118,9 +112,9 @@ export async function GET(req: Request) {
         console.error('LLM draft failed:', e);
         await sendTelegram(
           `<b>Новый комментарий (LLM упал — без черновика)</b>\n` +
-            `Под постом: <code>${item.path.split('/').pop()}</code>\n` +
-            `От <b>@${uname}</b>:\n\n${combinedText.slice(0, 600)}\n\n` +
-            `<a href="${rootReply.permalink ?? ''}">Открыть</a>\nОшибка: ${String(e).slice(0, 200)}`,
+            `Под постом: <code>${escape(item.path.split('/').pop() ?? '')}</code>\n` +
+            `От <b>@${escape(uname)}</b>:\n\n${escape(combinedText.slice(0, 600))}\n\n` +
+            `<a href="${escape(rootReply.permalink ?? '')}">Открыть</a>\nОшибка: ${escape(String(e).slice(0, 200))}`,
           { disablePreview: true }
         );
         continue;

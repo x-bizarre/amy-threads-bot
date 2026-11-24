@@ -1,6 +1,7 @@
 // Cron — раз в неделю (понедельник 4:00 UTC = 9:00 МСК = 9:00 Ташкент).
 // Также можно дёргать руками через /analyze в Telegram.
 import { NextResponse } from 'next/server';
+import { verifyCronAuth } from '@/lib/auth';
 import { handleAt } from '@/lib/brand-config';
 import {
   collectWeeklyMetrics,
@@ -14,15 +15,8 @@ import { sendTelegram } from '@/lib/telegram';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 240;
 
-function verifyAuth(req: Request): boolean {
-  const auth = req.headers.get('authorization') ?? '';
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  return auth === `Bearer ${secret}`;
-}
-
 export async function GET(req: Request) {
-  if (!verifyAuth(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  if (!verifyCronAuth(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   try {
     const metrics = await collectWeeklyMetrics(7);

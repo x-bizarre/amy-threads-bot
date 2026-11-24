@@ -7,7 +7,8 @@
 import { NextResponse } from 'next/server';
 import { handleAt } from '@/lib/brand-config';
 import { answerCallbackQuery, editMessageText, sendTelegram, setWebhook } from '@/lib/telegram';
-import { formatDialog, formatDraft, formatPostEdit, formatPreview } from '@/lib/format';
+import { escape, formatDialog, formatDraft, formatPostEdit, formatPreview } from '@/lib/format';
+import { safeEqual, verifyCronAuth } from '@/lib/auth';
 import {
   getDialog,
   saveDialog,
@@ -68,11 +69,13 @@ export const maxDuration = 60;
 
 const PUBLISH_DELAY_MIN = 5;
 
+// Fail-closed: без TELEGRAM_WEBHOOK_SECRET webhook не принимает апдейты вообще,
+// иначе любой мог бы прислать поддельный апдейт от имени владельца.
 function verifyWebhookSecret(req: Request): boolean {
   const sent = req.headers.get('x-telegram-bot-api-secret-token') ?? '';
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (!expected) return true;
-  return sent === expected;
+  if (!expected) return false;
+  return safeEqual(sent, expected);
 }
 
 interface TgPhotoSize {
@@ -103,7 +106,8 @@ interface TgUpdate {
 }
 
 // GET-ручка для ОДНОРАЗОВОЙ настройки webhook.
-// Открой в браузере: https://<твой-деплой>/api/bot/telegram-webhook?setup=1
+// Вызов (нужен заголовок с CRON_SECRET):
+//   curl -H "Authorization: Bearer $CRON_SECRET" "https://<твой-деплой>/api/bot/telegram-webhook?setup=1"
 // Она сама скажет Telegram'у слать апдейты на этот адрес. Без этого шага кнопки
 // одобрения в боте работать НЕ будут.
 export async function GET(req: Request) {
@@ -111,24 +115,36 @@ export async function GET(req: Request) {
   if (url.searchParams.get('setup') !== '1') {
     return NextResponse.json({
       ok: true,
-      hint: 'Чтобы подключить бота к Telegram, открой этот же адрес с ?setup=1 на конце.',
+      hint: 'Чтобы подключить бота к Telegram, вызови этот же адрес с ?setup=1 и заголовком Authorization: Bearer <CRON_SECRET>.',
     });
+  }
+
+  if (!verifyCronAuth(req)) {
+    return NextResponse.json({ ok: false, error: 'unauthorized' }, { status: 401 });
   }
 
   if (!process.env.TELEGRAM_BOT_TOKEN) {
     return NextResponse.json({ ok: false, error: 'TELEGRAM_BOT_TOKEN не задан' }, { status: 500 });
   }
 
-  // Адрес, на который Telegram будет слать апдейты — это текущий деплой.
-  // Берём из заголовков запроса (works и на Vercel, и на другом хостинге).
-  const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host');
-  const proto = req.headers.get('x-forwarded-proto') ?? 'https';
-  const base = process.env.PUBLIC_MEDIA_BASE_URL?.replace(/\/$/, '') ?? `${proto}://${host}`;
-  const webhookUrl = `${base}/api/bot/telegram-webhook`;
-
-  // Секрет для проверки подлинности апдейтов. Если задан TELEGRAM_WEBHOOK_SECRET —
-  // используем его; иначе подключаем без секрета (менее безопасно, но рабоче).
+  // Секрет для проверки подлинности апдейтов — обязателен (POST без него отклоняется).
   const secret = process.env.TELEGRAM_WEBHOOK_SECRET ?? '';
+  if (!secret) {
+    return NextResponse.json({ ok: false, error: 'TELEGRAM_WEBHOOK_SECRET не задан' }, { status: 500 });
+  }
+
+  // Адрес, на который Telegram будет слать апдейты — это текущий деплой.
+  // Берём только из env (не из заголовков запроса, их можно подделать).
+  const vercelHost = process.env.VERCEL_PROJECT_PRODUCTION_URL || process.env.VERCEL_URL;
+  const base =
+    process.env.PUBLIC_MEDIA_BASE_URL?.replace(/\/$/, '') || (vercelHost ? `https://${vercelHost}` : '');
+  if (!base) {
+    return NextResponse.json(
+      { ok: false, error: 'Не удалось определить адрес деплоя: задай PUBLIC_MEDIA_BASE_URL' },
+      { status: 500 }
+    );
+  }
+  const webhookUrl = `${base}/api/bot/telegram-webhook`;
 
   try {
     await setWebhook(webhookUrl, secret);
@@ -136,7 +152,6 @@ export async function GET(req: Request) {
       ok: true,
       message: 'Webhook подключён. Напиши боту /help — он должен ответить.',
       webhook_url: webhookUrl,
-      secret_used: Boolean(secret),
     });
   } catch (err: any) {
     return NextResponse.json(
@@ -156,9 +171,12 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'bad json' }, { status: 400 });
   }
 
+  // Бот работает только в личном чате владельца (там chat.id == user.id),
+  // поэтому проверяем и чат, и отправителя.
   const allowedChat = String(process.env.TELEGRAM_CHAT_ID ?? '');
   const chatId = update.message?.chat.id ?? update.callback_query?.message?.chat.id ?? 0;
-  if (String(chatId) !== allowedChat) {
+  const fromId = update.message?.from?.id ?? update.callback_query?.from?.id ?? 0;
+  if (!allowedChat || String(chatId) !== allowedChat || String(fromId) !== allowedChat) {
     return NextResponse.json({ ok: true, ignored: 'chat not allowed' });
   }
 
@@ -174,7 +192,7 @@ export async function POST(req: Request) {
     } catch (e: any) {
       console.error('webhook handler error:', e);
       try {
-        await sendTelegram(`<b>⚠️ Ошибка webhook'а:</b>\n<pre>${String(e).slice(0, 600)}</pre>`);
+        await sendTelegram(`<b>⚠️ Ошибка webhook'а:</b>\n<pre>${escape(String(e).slice(0, 600))}</pre>`);
       } catch {}
     }
   };
@@ -235,6 +253,11 @@ async function handleDialogCallback(
   }
 
   if (action === 'approve') {
+    // Защита от двойного нажатия / повторной доставки апдейта
+    if (dialog.status !== 'awaiting_approval') {
+      await answerCallbackQuery(cb.id, 'Уже обработано');
+      return;
+    }
     const publishAt = new Date(Date.now() + PUBLISH_DELAY_MIN * 60_000).toISOString();
     dialog.status = 'scheduled_publish';
     dialog.publish_at = publishAt;
@@ -340,18 +363,28 @@ async function handlePostEditCallback(
   }
 
   if (action === 'pe_publish') {
+    // Защита от двойной публикации
+    if (pe.status !== 'awaiting_approval') {
+      await answerCallbackQuery(cb.id, 'Уже обработано');
+      return;
+    }
+    // Сразу закрываем правку, чтобы повторное нажатие не запустило вторую публикацию
+    pe.status = 'done';
+    await savePostEdit(pe);
     await answerCallbackQuery(cb.id, 'Удаляю старый, публикую новый…');
+    let posted = false;
     try {
       // Удаляем старый пост (работает только если опубликован через API и <24ч)
       try {
         await deletePost(pe.threads_post_id);
       } catch (delErr: any) {
         await sendTelegram(
-          `⚠️ Не смогла удалить старый пост: <pre>${String(delErr).slice(0, 300)}</pre>\n` +
+          `⚠️ Не смогла удалить старый пост: <pre>${escape(String(delErr).slice(0, 300))}</pre>\n` +
             `Новый опубликую — старый придётся удалить вручную через Threads.`
         );
       }
       const published = await publishText(pe.current_text_en);
+      posted = true;
       pe.status = 'done';
       pe.threads_post_id = published.id;
       pe.threads_url = published.permalink;
@@ -368,17 +401,17 @@ async function handlePostEditCallback(
         );
       }
     } catch (e: any) {
-      await sendTelegram(`<b>⚠️ Ошибка при публикации:</b>\n<pre>${String(e).slice(0, 600)}</pre>`);
+      // Если новый пост не вышел — возвращаем статус, чтобы можно было повторить
+      if (!posted) {
+        pe.status = 'awaiting_approval';
+        await savePostEdit(pe).catch(() => {});
+      }
+      await sendTelegram(`<b>⚠️ Ошибка при публикации:</b>\n<pre>${escape(String(e).slice(0, 600))}</pre>`);
     }
     return;
   }
 
   await answerCallbackQuery(cb.id, `Неизвестное действие: ${action}`);
-}
-
-// HTML-экранирование для inline-использования
-function escape(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 // =====================================================================
@@ -813,7 +846,7 @@ async function handleDialogCorrection(dialogId: string, userText: string) {
       userText
     );
   } catch (e: any) {
-    await sendTelegram(`<b>⚠️ LLM упал при правке:</b>\n<pre>${String(e).slice(0, 400)}</pre>`);
+    await sendTelegram(`<b>⚠️ LLM упал при правке:</b>\n<pre>${escape(String(e).slice(0, 400))}</pre>`);
     return;
   }
 
@@ -850,7 +883,7 @@ async function handlePostEditCorrection(peId: string, userText: string) {
       correctionsRu: pe.corrections_ru,
     });
   } catch (e: any) {
-    await sendTelegram(`<b>⚠️ LLM упал при правке поста:</b>\n<pre>${String(e).slice(0, 400)}</pre>`);
+    await sendTelegram(`<b>⚠️ LLM упал при правке поста:</b>\n<pre>${escape(String(e).slice(0, 400))}</pre>`);
     return;
   }
 

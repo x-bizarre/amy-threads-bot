@@ -2,20 +2,14 @@
 // Если токену осталось меньше ~10 дней — обновляет его и кладёт свежий в Redis,
 // шлёт результат в Telegram. См. lib/token-refresh.ts.
 import { NextResponse } from 'next/server';
+import { verifyCronAuth } from '@/lib/auth';
 import { refreshThreadsToken } from '@/lib/token-refresh';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-function verifyAuth(req: Request): boolean {
-  const auth = req.headers.get('authorization') ?? '';
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true; // dev / ручной запуск
-  return auth === `Bearer ${secret}`;
-}
-
 export async function GET(req: Request) {
-  if (!verifyAuth(req)) {
+  if (!verifyCronAuth(req)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
   // ?force=1 — обновить токен принудительно (для ручной проверки)

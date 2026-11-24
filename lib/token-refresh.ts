@@ -15,6 +15,7 @@
 
 import { get, set } from './redis';
 import { sendTelegram } from './telegram';
+import { escape } from './format';
 
 const API_BASE = 'https://graph.threads.net';
 
@@ -98,7 +99,7 @@ export async function refreshThreadsToken(force = false): Promise<{
     const msg = err?.message ?? String(err);
     const alert =
       `⚠️ <b>Не удалось обновить Threads-токен</b>\n` +
-      `<pre>${msg.slice(0, 400)}</pre>\n` +
+      `<pre>${escape(msg.slice(0, 400))}</pre>\n` +
       `Обнови токен вручную (см. SETUP.md → раздел Threads) и положи в env ` +
       `THREADS_ACCESS_TOKEN, иначе публикация скоро остановится.`;
     await sendTelegram(alert).catch(() => {});

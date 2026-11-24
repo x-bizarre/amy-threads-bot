@@ -1,5 +1,6 @@
 // Периодически публикует диалоги со status=scheduled_publish, у которых publish_at в прошлом.
 import { NextResponse } from 'next/server';
+import { verifyCronAuth } from '@/lib/auth';
 import { listDuePublish, saveDialog } from '@/lib/dialog';
 import { translateToEnglish } from '@/lib/openrouter';
 import { publishText } from '@/lib/threads';
@@ -9,15 +10,8 @@ import { formatDialog } from '@/lib/format';
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
 
-function verifyAuth(req: Request): boolean {
-  const auth = req.headers.get('authorization') ?? '';
-  const secret = process.env.CRON_SECRET;
-  if (!secret) return true;
-  return auth === `Bearer ${secret}`;
-}
-
 export async function GET(req: Request) {
-  if (!verifyAuth(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
+  if (!verifyCronAuth(req)) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const due = await listDuePublish();
   if (due.length === 0) return NextResponse.json({ published: 0 });
